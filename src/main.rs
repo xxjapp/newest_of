@@ -1,41 +1,89 @@
 //
 // get newest modified time of files in a folder
 //
+// Usage
+//      # newest_of <directory> [extension]
+//
 // Usage examples:
-//      # newest_of ./
 //      # newest_of /tmp
+//      # newest_of ./
+//      # newest_of ./ .go
 //
 
-use std::cmp;
 use std::env;
 use std::error::Error;
+use std::fmt;
 use std::fs::{self, DirEntry};
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+
+struct Res {
+    p: PathBuf,
+    m: u64,
+}
+
+impl fmt::Debug for Res {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(p) = self.p.to_str() {
+            write!(f, "{} {}", self.m, p)
+        } else {
+            write!(f, "{} {:#?}", self.m, self.p)
+        }
+    }
+}
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    let path = args.get(1).expect("file or folder path not specified");
-    let path = Path::new(path);
+    let path0 = args.get(1).expect("file or folder path not specified");
+    let ext0 = args.get(2);
+    let path = Path::new(path0);
 
     if path.is_file() {
         match mtime1(path) {
-            Ok(newest) => println!("{}", newest),
+            Ok(mtime) => println!(
+                "{:#?}",
+                Res {
+                    p: PathBuf::from(path0),
+                    m: mtime,
+                }
+            ),
             Err(error) => println!("{:?}", error),
         }
     } else {
-        let mut newest = 0;
+        let mut newest = Res {
+            p: PathBuf::from(""),
+            m: 0,
+        };
 
         let mut cb = |entry: &DirEntry| {
-            match mtime2(entry) {
-                Ok(mtime) => newest = cmp::max(newest, mtime),
-                _ => return,
-            };
+            let mut skip = true;
+
+            if let Some(ext0) = ext0 {
+                if let Some(ext) = entry.path().extension() {
+                    if let Some(ext) = ext.to_str() {
+                        skip = !ext0.eq(ext);
+                    }
+                }
+            } else {
+                skip = false;
+            }
+
+            if !skip {
+                match mtime2(entry) {
+                    Ok(mtime) => {
+                        if mtime > newest.m {
+                            newest.m = mtime;
+                            newest.p = entry.path();
+                        }
+                    }
+                    _ => (),
+                };
+            }
         };
 
         match traverse(path, &mut cb) {
-            Ok(_) => println!("{}", newest),
+            Ok(_) => println!("{:#?}", newest),
             Err(error) => println!("{:?}", error),
         }
     }
