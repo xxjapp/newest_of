@@ -10,13 +10,15 @@
 //      # newest_of ./ .go
 //
 
+use chrono::prelude::DateTime;
+use chrono::Local;
 use std::env;
 use std::error::Error;
 use std::fmt;
 use std::fs::{self, DirEntry};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 struct Res {
     p: PathBuf,
@@ -25,10 +27,12 @@ struct Res {
 
 impl fmt::Debug for Res {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let dt = date_time_from_timestamp(self.m).format("%Y-%m-%d %H:%M:%S");
+
         if let Some(p) = self.p.to_str() {
-            write!(f, "{} {}", self.m, p)
+            write!(f, "{} [{}] {:#?}", self.m, dt, p)
         } else {
-            write!(f, "{} {:#?}", self.m, self.p)
+            write!(f, "{} [{}] {:#?}", self.m, dt, self.p)
         }
     }
 }
@@ -116,4 +120,8 @@ fn mtime2(entry: &DirEntry) -> Result<u64, Box<dyn Error>> {
 // get time value in seconds since epoch
 fn since_epoch(t: &SystemTime) -> Result<u64, Box<dyn Error>> {
     Ok(t.duration_since(SystemTime::UNIX_EPOCH)?.as_secs())
+}
+
+fn date_time_from_timestamp(ts: u64) -> DateTime<Local> {
+    DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(ts))
 }
