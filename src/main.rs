@@ -2,11 +2,19 @@
 // get newest modified time of files in a folder
 //
 // Usage
-//      # newest_of <directory> [extension]
+//      # newest_of [directory] [extension]
 //
-// Usage examples:
-//      # newest_of /tmp
+// Examples:
+//      # 1. search newest file in current directory
+//      # newest_of
+//
+//      # 2. search newest file in current directory
 //      # newest_of ./
+//
+//      # 3. search newest file in /tmp directory
+//      # newest_of /tmp
+//
+//      # 4. search newest .go file in current directory
 //      # newest_of ./ .go
 //
 
@@ -39,7 +47,9 @@ impl fmt::Debug for Res {
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    let path0 = args.get(1).expect("file or folder path not specified");
+    let default_path0 = String::from(".");
+
+    let path0 = args.get(1).unwrap_or(&default_path0);
     let ext0 = args.get(2);
     let path = Path::new(path0);
 
