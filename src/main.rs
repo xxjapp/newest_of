@@ -2,7 +2,7 @@
 // get newest modified time of files in a folder
 //
 // Usage
-//      # newest_of [directory] [extension]
+//      # newest_of [directory] [extensions]
 //
 // Examples:
 //      # 1. search newest file in current directory
@@ -14,8 +14,11 @@
 //      # 3. search newest file in /tmp directory
 //      # newest_of /tmp
 //
-//      # 4. search newest .go file in current directory
-//      # newest_of ./ .go
+//      # 4. search newest go file in current directory
+//      # newest_of ./ go
+//
+//      # 5. search newest go and json file in current directory
+//      # newest_of ./ go json
 //
 
 use chrono::prelude::DateTime;
@@ -46,11 +49,16 @@ impl fmt::Debug for Res {
 }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    let default_path0 = String::from(".");
+    let default_path = String::from(".");
+    let default_exts = Vec::new();
 
-    let path0 = args.get(1).unwrap_or(&default_path0);
-    let ext0 = args.get(2);
+    let args: Vec<String> = env::args().collect();
+    let path0 = args.get(1).unwrap_or(&default_path);
+    let exts0 = if args.len() > 2 {
+        &args[2..]
+    } else {
+        &default_exts
+    };
     let path = Path::new(path0);
 
     if path.is_file() {
@@ -71,19 +79,23 @@ fn main() {
         };
 
         let mut cb = |entry: &DirEntry| {
-            let mut skip = true;
+            let mut include = false;
 
-            if let Some(ext0) = ext0 {
-                if let Some(ext) = entry.path().extension() {
-                    if let Some(ext) = ext.to_str() {
-                        skip = !ext0.eq(ext);
+            if exts0.len() > 0 {
+                for ext0 in exts0 {
+                    if let Some(ext) = entry.path().extension() {
+                        include = ext.eq(ext0.as_str());
+
+                        if include {
+                            break;
+                        }
                     }
                 }
             } else {
-                skip = false;
+                include = true
             }
 
-            if !skip {
+            if include {
                 match mtime2(entry) {
                     Ok(mtime) => {
                         if mtime > newest.m {
