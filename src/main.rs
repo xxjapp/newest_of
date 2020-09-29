@@ -111,10 +111,10 @@ fn handle_path(path: &PathBuf, args: &Cli, handle_result: &mut dyn FnMut(Res)) {
 }
 
 fn handle_path2(entry: &DirEntry, args: &Cli, handle_result: &mut dyn FnMut(Res)) {
-    let entry_path = entry.path();
+    let path = entry.path();
 
-    if entry_path.is_file() {
-        let ext = entry_path.extension().and_then(OsStr::to_str).unwrap_or("");
+    if path.is_file() {
+        let ext = path.extension().and_then(OsStr::to_str).unwrap_or("");
 
         if !filter_extension(ext, &args.include_exts, &args.exclude_exts) {
             return;
@@ -122,23 +122,23 @@ fn handle_path2(entry: &DirEntry, args: &Cli, handle_result: &mut dyn FnMut(Res)
 
         match mtime2(entry) {
             Ok(mtime) => handle_result(Res {
-                p: entry_path.to_path_buf(),
+                p: path.to_path_buf(),
                 m: mtime,
             }),
             Err(error) => println!("{:?}", error),
-        };
-    } else if entry_path.is_dir() {
+        }
+    } else if path.is_dir() {
         if args.output_directory {
             match mtime2(entry) {
                 Ok(mtime) => handle_result(Res {
-                    p: entry_path.to_path_buf(),
+                    p: path.to_path_buf(),
                     m: mtime,
                 }),
                 Err(error) => println!("{:?}", error),
-            };
+            }
         }
     } else {
-        println!("{:#?} is neither a file nor a directory", entry_path)
+        println!("{:#?} is neither a file nor a directory", path)
     }
 }
 
