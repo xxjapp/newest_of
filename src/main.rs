@@ -1,35 +1,45 @@
-//
-// get newest modified time of files in a folder
-//
-// Usage
-//      # newest_of [directory] [extensions]
-//
-// Examples:
-//      # 1. search newest file in current directory
-//      # newest_of
-//
-//      # 2. search newest file in current directory
-//      # newest_of ./
-//
-//      # 3. search newest file in /tmp directory
-//      # newest_of /tmp
-//
-//      # 4. search newest go file in current directory
-//      # newest_of ./ go
-//
-//      # 5. search newest go and json file in current directory
-//      # newest_of ./ go json
-//
-
 use chrono::prelude::DateTime;
 use chrono::Local;
-use std::env;
 use std::error::Error;
+use std::ffi::OsStr;
 use std::fmt;
 use std::fs::{self, DirEntry};
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use structopt::StructOpt;
+
+/// Get newest/oldest files or sub objects of directories by modified time
+#[derive(StructOpt, Debug)]
+struct Cli {
+    /// The files or directories paths to search
+    #[structopt(short, long, default_value = "./", parse(from_os_str))]
+    paths: Vec<PathBuf>,
+
+    /// The extensions to include for files
+    #[structopt(short, long)]
+    include_exts: Vec<String>,
+
+    /// The extensions to exclude for files
+    #[structopt(short, long)]
+    exclude_exts: Vec<String>,
+
+    /// Whether to output directories or not
+    #[structopt(short, long)]
+    output_directory: bool,
+
+    /// The max result file/directory count
+    #[structopt(short, long, default_value = "10")]
+    count: i32,
+
+    /// Instead of search newest, search oldest
+    #[structopt(short, long)]
+    reverse: bool,
+
+    /// TODO: Whether to order output or not
+    #[structopt(short, long)]
+    unordered: bool,
+}
 
 struct Res {
     p: PathBuf,
@@ -49,89 +59,114 @@ impl fmt::Debug for Res {
 }
 
 fn main() {
-    let default_path = String::from(".");
-    let default_exts = Vec::new();
+    let args = Cli::from_args();
+    println!("{:#?}", args);
 
-    let args: Vec<String> = env::args().collect();
-    let path0 = args.get(1).unwrap_or(&default_path);
-    let exts0 = if args.len() > 2 {
-        &args[2..]
-    } else {
-        &default_exts
-    };
-    let path = Path::new(path0);
+    // collect results
+    let mut results = Vec::new();
 
-    if path.is_file() {
-        match mtime1(path) {
-            Ok(mtime) => println!(
-                "{:#?}",
-                Res {
-                    p: PathBuf::from(path0),
-                    m: mtime,
-                }
-            ),
-            Err(error) => println!("{:?}", error),
-        }
-    } else {
-        let mut newest = Res {
-            p: PathBuf::from(""),
-            m: 0,
-        };
+    for path in &args.paths {
+        handle_path(&path, &args, &mut |res: Res| results.push(res));
+    }
 
-        let mut cb = |entry: &DirEntry| {
-            let mut include = false;
-
-            if exts0.len() > 0 {
-                for ext0 in exts0 {
-                    if let Some(ext) = entry.path().extension() {
-                        include = ext.eq(ext0.as_str());
-
-                        if include {
-                            break;
-                        }
-                    }
-                }
-            } else {
-                include = true
-            }
-
-            if include {
-                match mtime2(entry) {
-                    Ok(mtime) => {
-                        if mtime > newest.m {
-                            newest.m = mtime;
-                            newest.p = entry.path();
-                        }
-                    }
-                    _ => (),
-                };
-            }
-        };
-
-        match traverse(path, &mut cb) {
-            Ok(_) => println!("{:#?}", newest),
-            Err(error) => println!("{:?}", error),
-        }
+    // output results
+    for res in results {
+        println!("{:#?}", res)
     }
 }
 
+fn handle_path(path: &PathBuf, args: &Cli, handle_result: &mut dyn FnMut(Res)) {
+    if path.is_file() {
+        let ext = path.extension().and_then(OsStr::to_str).unwrap_or("");
+
+        if !filter_extension(ext, &args.include_exts, &args.exclude_exts) {
+            return;
+        }
+
+        match mtime1(path) {
+            Ok(mtime) => handle_result(Res {
+                p: path.to_path_buf(),
+                m: mtime,
+            }),
+            Err(error) => println!("{:?}", error),
+        }
+    } else if path.is_dir() {
+        if args.output_directory {
+            match mtime1(path) {
+                Ok(mtime) => handle_result(Res {
+                    p: path.to_path_buf(),
+                    m: mtime,
+                }),
+                Err(error) => println!("{:?}", error),
+            }
+        }
+
+        match traverse_dir(path, args, handle_result, &mut handle_path2) {
+            Ok(_) => (),
+            Err(error) => println!("{:?}", error),
+        }
+    } else {
+        println!("{:#?} is neither a file nor a directory", path)
+    }
+}
+
+fn handle_path2(entry: &DirEntry, args: &Cli, handle_result: &mut dyn FnMut(Res)) {
+    let entry_path = entry.path();
+
+    if entry_path.is_file() {
+        let ext = entry_path.extension().and_then(OsStr::to_str).unwrap_or("");
+
+        if !filter_extension(ext, &args.include_exts, &args.exclude_exts) {
+            return;
+        }
+
+        match mtime2(entry) {
+            Ok(mtime) => handle_result(Res {
+                p: entry_path.to_path_buf(),
+                m: mtime,
+            }),
+            Err(error) => println!("{:?}", error),
+        };
+    } else if entry_path.is_dir() {
+        if args.output_directory {
+            match mtime2(entry) {
+                Ok(mtime) => handle_result(Res {
+                    p: entry_path.to_path_buf(),
+                    m: mtime,
+                }),
+                Err(error) => println!("{:?}", error),
+            };
+        }
+    } else {
+        println!("{:#?} is neither a file nor a directory", entry_path)
+    }
+}
+
+fn filter_extension(ext: &str, include_exts: &Vec<String>, exclude_exts: &Vec<String>) -> bool {
+    if !exclude_exts.is_empty() && exclude_exts.contains(&ext.to_string()) {
+        return false;
+    }
+
+    return include_exts.is_empty() || include_exts.contains(&ext.to_string());
+}
+
 // traverse a directory
-fn traverse(path: &Path, cb: &mut dyn FnMut(&DirEntry)) -> io::Result<()> {
+fn traverse_dir(path: &PathBuf, args: &Cli, handle_result: &mut dyn FnMut(Res), cb: &mut dyn FnMut(&DirEntry, &Cli, &mut dyn FnMut(Res))) -> io::Result<()> {
     for entry in fs::read_dir(path)? {
         let entry = entry?;
         let path = entry.path();
 
+        cb(&entry, args, handle_result);
+
         if path.is_dir() {
-            traverse(&path, cb)?;
-        } else {
-            cb(&entry);
+            traverse_dir(&path, args, handle_result, cb)?;
         }
     }
 
     Ok(())
 }
 
-fn mtime1(path: &Path) -> Result<u64, Box<dyn Error>> {
+fn mtime1(path: &PathBuf) -> Result<u64, Box<dyn Error>> {
     since_epoch(&path.metadata()?.modified()?)
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "newest_of"
-version = "0.1.0"
+version = "1.0.0"
 authors = ["nmaeda <nmaeda@keepdata.asia>"]
 edition = "2018"
 
@@ -8,3 +8,4 @@ edition = "2018"
 
 [dependencies]
 chrono = "0.4"
+structopt = "0.3"
