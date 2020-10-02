@@ -16,13 +16,20 @@ require 'find'
 
 module Test
     def self.newest_of dir
-        newest = 0
+        newest, total_count, path = 0, 0, nil
 
-        Find.find dir do |path|
-            newest = [newest, File.mtime(path).to_i].max
+        Find.find dir do |p|
+            mtime = File.mtime(p).to_i
+
+            if mtime > newest
+                newest = mtime
+                path = p
+            end
+
+            total_count += 1
         end
 
-        newest
+        return newest, path, total_count
     end
 end
 
@@ -30,5 +37,8 @@ end
 # main
 
 if __FILE__ == $0
-    puts Test.newest_of ARGV[0]
+    newest, path, total_count = Test.newest_of ARGV[0]
+
+    puts "#{Time.at(newest)} #{path}" 
+    puts "total count: #{total_count}"
 end

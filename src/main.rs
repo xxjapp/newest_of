@@ -1,184 +1,189 @@
 use chrono::prelude::DateTime;
 use chrono::Local;
 use std::error::Error;
-use std::ffi::OsStr;
-use std::fmt;
-use std::fs::{self, DirEntry};
+use std::ffi::OsString;
+use std::fs;
 use std::io;
-use std::path::PathBuf;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, UNIX_EPOCH};
 use structopt::StructOpt;
 
-/// Get newest/oldest files or sub objects of directories by modified time
+/// Get newest or oldest objects of input files or directories recursively by modification time
 #[derive(StructOpt, Debug)]
 struct Cli {
-    /// The files or directories paths to search
+    /// The input files or directories paths to search
     #[structopt(short, long, default_value = "./", parse(from_os_str))]
-    paths: Vec<PathBuf>,
+    input_paths: Vec<PathBuf>,
 
     /// The extensions to include for files
-    #[structopt(short, long)]
-    include_exts: Vec<String>,
+    #[structopt(short = "e", long)]
+    include_exts: Vec<OsString>,
 
     /// The extensions to exclude for files
-    #[structopt(short, long)]
-    exclude_exts: Vec<String>,
+    #[structopt(short = "E", long)]
+    exclude_exts: Vec<OsString>,
 
-    /// Whether to output directories or not
-    #[structopt(short, long)]
+    /// Output directories
+    #[structopt(short = "d", long)]
     output_directory: bool,
 
     /// The max result file/directory count
     #[structopt(short, long, default_value = "10")]
-    count: i32,
+    count: usize,
 
     /// Instead of search newest, search oldest
     #[structopt(short, long)]
     reverse: bool,
 
-    /// TODO: Whether to order output or not
+    /// Do not sort output by modification time, count and reverse will be ignored
     #[structopt(short, long)]
     unordered: bool,
 }
 
 struct Res {
     p: PathBuf,
-    m: u64,
-}
-
-impl fmt::Debug for Res {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let dt = date_time_from_timestamp(self.m).format("%Y-%m-%d %H:%M:%S");
-
-        if let Some(p) = self.p.to_str() {
-            write!(f, "{} [{}] {:#?}", self.m, dt, p)
-        } else {
-            write!(f, "{} [{}] {:#?}", self.m, dt, self.p)
-        }
-    }
+    m: Duration,
 }
 
 fn main() {
     let args = Cli::from_args();
-    println!("{:#?}", args);
+    // println!("{:#?}", args);
 
     // collect results
     let mut results = Vec::new();
+    let mut total_count = 0;
 
-    for path in &args.paths {
-        handle_path(&path, &args, &mut |res: Res| results.push(res));
+    for input_path in &args.input_paths {
+        match handle_input_path(&input_path, &mut |path: &Path, is_dir: bool| {
+            total_count += 1;
+
+            if is_dir {
+                if !args.output_directory {
+                    return;
+                }
+            } else {
+                let ext = path.extension().unwrap_or_default().to_os_string();
+
+                if !filter_extension(&ext, &args.include_exts, &args.exclude_exts) {
+                    return;
+                }
+            }
+
+            // create res object
+            let mtime = match get_mtime(path) {
+                Ok(mtime) => mtime,
+                Err(error) => {
+                    eprintln!("{:#?} - {:?}", error, path);
+                    return;
+                }
+            };
+
+            if args.unordered {
+                // output result directly
+                output_result(path, mtime);
+            } else {
+                // add result to results, do sort and filter
+                add_result(path, mtime, &mut results, &args);
+            }
+        }) {
+            Ok(_) => (),
+            Err(error) => eprintln!("{:#?}", error),
+        };
     }
 
     // output results
+    output_results(&results, total_count);
+}
+
+fn output_results(results: &Vec<Res>, total_count: u32) {
     for res in results {
-        println!("{:#?}", res)
+        output_result(&res.p, res.m);
     }
+
+    println!("\ntotal count: {}", total_count);
 }
 
-fn handle_path(path: &PathBuf, args: &Cli, handle_result: &mut dyn FnMut(Res)) {
-    if path.is_file() {
-        let ext = path.extension().and_then(OsStr::to_str).unwrap_or("");
+fn output_result(path: &Path, mtime: Duration) {
+    let dt = date_time_from_timestamp(mtime).format("%Y-%m-%d %H:%M:%S");
+    println!("{} {:?}", dt, path);
+}
 
-        if !filter_extension(ext, &args.include_exts, &args.exclude_exts) {
+fn add_result(path: &Path, mtime: Duration, results: &mut Vec<Res>, args: &Cli) {
+    let is_full = results.len() >= args.count;
+
+    // no need to add
+    if is_full {
+        if !args.reverse && mtime <= results[0].m {
             return;
         }
-
-        match mtime1(path) {
-            Ok(mtime) => handle_result(Res {
-                p: path.to_path_buf(),
-                m: mtime,
-            }),
-            Err(error) => println!("{:?}", error),
-        }
-    } else if path.is_dir() {
-        if args.output_directory {
-            match mtime1(path) {
-                Ok(mtime) => handle_result(Res {
-                    p: path.to_path_buf(),
-                    m: mtime,
-                }),
-                Err(error) => println!("{:?}", error),
-            }
-        }
-
-        match traverse_dir(path, args, handle_result, &mut handle_path2) {
-            Ok(_) => (),
-            Err(error) => println!("{:?}", error),
-        }
-    } else {
-        println!("{:#?} is neither a file nor a directory", path)
-    }
-}
-
-fn handle_path2(entry: &DirEntry, args: &Cli, handle_result: &mut dyn FnMut(Res)) {
-    let path = entry.path();
-
-    if path.is_file() {
-        let ext = path.extension().and_then(OsStr::to_str).unwrap_or("");
-
-        if !filter_extension(ext, &args.include_exts, &args.exclude_exts) {
+        if args.reverse && mtime >= results[0].m {
             return;
         }
+    }
 
-        match mtime2(entry) {
-            Ok(mtime) => handle_result(Res {
-                p: path.to_path_buf(),
-                m: mtime,
-            }),
-            Err(error) => println!("{:?}", error),
-        }
-    } else if path.is_dir() {
-        if args.output_directory {
-            match mtime2(entry) {
-                Ok(mtime) => handle_result(Res {
-                    p: path.to_path_buf(),
-                    m: mtime,
-                }),
-                Err(error) => println!("{:?}", error),
-            }
-        }
-    } else {
-        println!("{:#?} is neither a file nor a directory", path)
+    // add to results
+    results.push(Res {
+        p: path.to_path_buf(),
+        m: mtime,
+    });
+
+    // sort to put newest or oldest objects at last position
+    results.sort_unstable_by(|a, b| match args.reverse {
+        true => b.m.cmp(&a.m),
+        _ => a.m.cmp(&b.m),
+    });
+
+    // remove first item, which is not so new or old
+    if is_full {
+        results.remove(0);
     }
 }
 
-fn filter_extension(ext: &str, include_exts: &Vec<String>, exclude_exts: &Vec<String>) -> bool {
-    if !exclude_exts.is_empty() && exclude_exts.contains(&ext.to_string()) {
-        return false;
+fn handle_input_path(path: &Path, handle_result: &mut dyn FnMut(&Path, bool)) -> io::Result<()> {
+    if path.is_dir() {
+        traverse_dir(path, handle_result)?;
+    } else {
+        handle_result(path, false);
     }
 
-    return include_exts.is_empty() || include_exts.contains(&ext.to_string());
+    Ok(())
 }
 
 // traverse a directory
-fn traverse_dir(path: &PathBuf, args: &Cli, handle_result: &mut dyn FnMut(Res), cb: &mut dyn FnMut(&DirEntry, &Cli, &mut dyn FnMut(Res))) -> io::Result<()> {
+fn traverse_dir(path: &Path, handle_result: &mut dyn FnMut(&Path, bool)) -> io::Result<()> {
+    handle_result(path, true);
+
+    // NOTE: fs::read_dir will read symbolic links, which is difference with linux find command with default options
     for entry in fs::read_dir(path)? {
-        let entry = entry?;
-        let path = entry.path();
+        let entry_path = &entry?.path();
 
-        cb(&entry, args, handle_result);
-
-        if path.is_dir() {
-            traverse_dir(&path, args, handle_result, cb)?;
+        if entry_path.is_dir() {
+            traverse_dir(entry_path, handle_result)?;
+        } else {
+            handle_result(entry_path, false);
         }
     }
 
     Ok(())
 }
 
-fn mtime1(path: &PathBuf) -> Result<u64, Box<dyn Error>> {
-    since_epoch(&path.metadata()?.modified()?)
+fn filter_extension(
+    ext: &OsString,
+    include_exts: &Vec<OsString>,
+    exclude_exts: &Vec<OsString>,
+) -> bool {
+    if !exclude_exts.is_empty() && exclude_exts.contains(ext) {
+        return false;
+    }
+
+    return include_exts.is_empty() || include_exts.contains(ext);
 }
 
-fn mtime2(entry: &DirEntry) -> Result<u64, Box<dyn Error>> {
-    since_epoch(&entry.metadata()?.modified()?)
+// get modification time value in seconds since epoch
+fn get_mtime(path: &Path) -> Result<Duration, Box<dyn Error>> {
+    Ok(path.metadata()?.modified()?.duration_since(UNIX_EPOCH)?)
 }
 
-// get time value in seconds since epoch
-fn since_epoch(t: &SystemTime) -> Result<u64, Box<dyn Error>> {
-    Ok(t.duration_since(SystemTime::UNIX_EPOCH)?.as_secs())
-}
-
-fn date_time_from_timestamp(ts: u64) -> DateTime<Local> {
-    DateTime::<Local>::from(UNIX_EPOCH + Duration::from_secs(ts))
+fn date_time_from_timestamp(ts: Duration) -> DateTime<Local> {
+    DateTime::<Local>::from(UNIX_EPOCH + ts)
 }
