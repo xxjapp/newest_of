@@ -3,7 +3,7 @@ Get newest or oldest objects of input files or directories recursively by modifi
 
 ## Usage
 
-```bash
+```txt
 # newest_of --help
 newest_of 1.0.0
 Get newest or oldest objects of input files or directories recursively by modification time
