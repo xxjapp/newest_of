@@ -38,6 +38,10 @@ struct Cli {
     /// Do not sort output by modification time, count and reverse will be ignored
     #[structopt(short, long)]
     unordered: bool,
+
+    /// do not output timestamp and total count info
+    #[structopt(short, long)]
+    simple_output: bool,
 }
 
 struct Res {
@@ -80,7 +84,7 @@ fn main() {
 
             if args.unordered {
                 // output result directly
-                output_result(path, mtime);
+                output_result(path, mtime, args.simple_output);
             } else {
                 // add result to results, do sort and filter
                 add_result(path, mtime, &mut results, &args);
@@ -92,20 +96,26 @@ fn main() {
     }
 
     // output results
-    output_results(&results, total_count);
+    output_results(&results, total_count, args.simple_output);
 }
 
-fn output_results(results: &Vec<Res>, total_count: u32) {
+fn output_results(results: &Vec<Res>, total_count: u32, simple_output: bool) {
     for res in results {
-        output_result(&res.p, res.m);
+        output_result(&res.p, res.m, simple_output);
     }
 
-    println!("\ntotal count: {}", total_count);
+    if !simple_output {
+        println!("\ntotal count: {}", total_count);
+    }
 }
 
-fn output_result(path: &Path, mtime: Duration) {
-    let dt = date_time_from_timestamp(mtime).format("%Y-%m-%d %H:%M:%S");
-    println!("{} {:?}", dt, path);
+fn output_result(path: &Path, mtime: Duration, simple_output: bool) {
+    if simple_output {
+        println!("{}", path.to_str().unwrap_or_default());
+    } else {
+        let dt = date_time_from_timestamp(mtime).format("%Y-%m-%d %H:%M:%S");
+        println!("{} {:?}", dt, path);
+    }
 }
 
 fn add_result(path: &Path, mtime: Duration, results: &mut Vec<Res>, args: &Cli) {
