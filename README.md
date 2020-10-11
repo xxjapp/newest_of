@@ -5,7 +5,7 @@ Get newest or oldest objects of input files or directories recursively by modifi
 
 ```txt
 # newest_of --help
-newest_of 1.0.0
+newest_of 1.1.0
 Get newest or oldest objects of input files or directories recursively by modification time
 
 USAGE:
@@ -15,6 +15,7 @@ FLAGS:
     -h, --help                Prints help information
     -d, --output-directory    Output directories
     -r, --reverse             Instead of search newest, search oldest
+    -s, --simple-output       do not output timestamp and total count info
     -u, --unordered           Do not sort output by modification time, count and reverse will be ignored
     -V, --version             Prints version information
 
